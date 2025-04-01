@@ -8,7 +8,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor
 import time
 
-VMWARE_HOSTS = ["172.16.1.11", "172.16.1.28", "172.16.1.10"]
+VMWARE_HOSTS = ["192.168.1.1"]
 
 def parse_args():
     parser = argparse.ArgumentParser(description='VMware VM Backup Tool')
