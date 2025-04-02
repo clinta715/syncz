@@ -101,6 +101,8 @@ def parse_vmx_file(host, username, vmx_path):
             match = re.search(r'=\s*"([^"]+\.(vmdk|iso))"', line)
             if match:
                 disk_path = match.group(1)
+                # Fix snapshot redirection
+                disk_path = re.sub(r'([a-zA-Z0-9]+)-[0-9]{6}\.vmdk', r'\1.vmdk', disk_path)
                 if not disk_path.startswith('/'):
                     disk_path = os.path.join(os.path.dirname(vmx_path), disk_path)
                 disk_files.append(disk_path)
