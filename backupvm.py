@@ -262,8 +262,10 @@ def backup_vmdk(host, username, vmdk_path, output_dir, vm_name, disk_num, temp_b
     related_files = get_related_vmdk_files(host, username, vmdk_path)
     print(f"Found {len(related_files)} related VMDK files for {vmdk_path}")
 
-    # Create a unique mount point for this VMDK set
-    vmdk_temp = os.path.join(temp_base, f'vmdk_{disk_num}')
+    # Create a unique mount point for this VMDK set using timestamp and PID
+    timestamp = int(time.time())
+    pid = os.getpid()
+    vmdk_temp = os.path.join(temp_base, f'vmdk_{disk_num}_{timestamp}_{pid}')
 
     # Mount the directory containing the VMDK files
     if not mount_directory(host, username, vmdk_dir, vmdk_temp):
@@ -303,6 +305,10 @@ def backup_vmdk(host, username, vmdk_path, output_dir, vm_name, disk_num, temp_b
 
     finally:
         unmount_directory(vmdk_temp)
+        try:
+            os.rmdir(vmdk_temp)  # Clean up the empty directory
+        except OSError:
+            pass  # Ignore if directory not empty or other error
 
 def cleanup(host, username, vm_id, temp_folder):
     print("Unmounting any remaining mounts...")
