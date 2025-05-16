@@ -7,6 +7,7 @@ import re
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 import time
+import portalocker  # Add this
 
 # Supported compression programs and their extensions
 COMPRESSION_FORMATS = {
@@ -320,6 +321,18 @@ def cleanup(host, username, vm_id, temp_folder):
 
 def main():
     args = parse_args()
+
+    # Lock based on VM name
+    safe_vm_name = re.sub(r'\W+', '_', args.vm_name)  # sanitize VM name for filename
+    lockfile_path = f'/tmp/backupvm_{safe_vm_name}.lock'
+
+    try:
+        lock_file = open(lockfile_path, 'w')
+        portalocker.lock(lock_file, portalocker.LOCK_EX | portalocker.LOCK_NB)
+    except portalocker.exceptions.LockException:
+        print(f"Another backup of VM '{args.vm_name}' is already in progress. Exiting.")
+        sys.exit(1)
+
     try:
         # Verify output directory exists
         if not os.path.exists(args.out):
@@ -376,6 +389,8 @@ def main():
     finally:
         if 'vm_info' in locals():
             cleanup(vm_info['host'], vm_info['username'], vm_info['vm_id'], args.temp)
-
+        if 'lock_file' in locals():
+            lock_file.close()
+            
 if __name__ == "__main__":
     main()
