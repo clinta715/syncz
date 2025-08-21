@@ -1,4 +1,5 @@
 backupvm.py
+This application assumes that the machine on which it is running, has access via pre-shared SSH keys, to all the VMWare hosts it accesses.  You will need to manually set this up yourself.
 
 A Python-based utility to back up VMware virtual machines (VMs) directly over SSH/SSHFS.
 It creates compressed archives of VM configuration files and virtual disk (.vmdk) files, along with integrity manifests containing file sizes and cryptographic hashes.
