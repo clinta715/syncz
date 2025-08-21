@@ -8,6 +8,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor
 import time
 import portalocker  # Add this
+import hashlib
 
 # Supported compression programs and their extensions
 COMPRESSION_FORMATS = {
@@ -17,6 +18,48 @@ COMPRESSION_FORMATS = {
     'xz': {'ext': '.tar.xz', 'cmd': 'xz'},
     'none': {'ext': '.tar', 'cmd': 'cat'},  # 'cat' for no compression
 }
+
+def compute_hash(file_path, algo='sha256', chunk_size=65536):
+    """Compute hash of a file with the chosen algorithm"""
+    h = hashlib.new(algo)
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(chunk_size), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+def generate_manifest(archive_path, output_dir, algo='sha256'):
+    manifest_path = os.path.join(
+        output_dir,
+        os.path.basename(archive_path) + f".{algo}.manifest.txt"
+    )
+    with open(manifest_path, 'w') as mf:
+        size = os.path.getsize(archive_path)
+        digest = compute_hash(archive_path, algo)
+        mf.write(f"Archive: {archive_path}\n")
+        mf.write(f"Size: {size} bytes\n")
+        mf.write(f"{algo.upper()}: {digest}\n\n")
+
+        # List archive contents
+        mf.write("Contents:\n")
+        try:
+            result = subprocess.run(
+                ['tar', '-tvf', archive_path],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            for line in result.stdout.strip().split('\n'):
+                parts = line.split()
+                if len(parts) < 6:
+                    continue
+                size = parts[2] if parts[2].isdigit() else parts[-4]
+                name = parts[-1]
+                mf.write(f"{name}\t{size} bytes\n")
+        except Exception as e:
+            mf.write(f"Could not list contents: {e}\n")
+
+    print(f"Manifest written to {manifest_path}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='VMware VM Backup Tool')
@@ -28,6 +71,9 @@ def parse_args():
     parser.add_argument('--compression', choices=COMPRESSION_FORMATS.keys(), default='zstd',
                         help='Compression method to use (default: zstd)')
     parser.add_argument('--compression-level', type=int, help='Compression level (optional, program-specific)')
+    parser.add_argument('--hash', dest='hash_algo', default='sha256',
+                    choices=hashlib.algorithms_available,
+                    help='Hash algorithm to use for manifests (default: sha256)')
     return parser.parse_args()
 
 def run_ssh_command(host, username, command, check=True):
@@ -217,7 +263,7 @@ def get_compression_command(compression_format, compression_level=None):
 
     return cmd
 
-def backup_vm_config(host, username, vm_dir, output_dir, vm_name, temp_base, compression_format, compression_level=None):
+def backup_vm_config(host, username, vm_dir, output_dir, vm_name, temp_base, compression_format, compression_level=None, hash_algo='sha256'):
     """Backup VM configuration files"""
     config_temp = os.path.join(temp_base, 'config')
     if not mount_directory(host, username, vm_dir, config_temp):
@@ -248,13 +294,16 @@ def backup_vm_config(host, username, vm_dir, output_dir, vm_name, temp_base, com
                 ['tar', f'--use-compress-program={compress_cmd}', '-cvf', output_file] + config_files,
                 check=True
             )
+
+            # Generate manifest for this archive
+            generate_manifest(output_file, output_dir, hash_algo)
         finally:
             os.chdir('/')  # Always change back to root directory
 
     finally:
         unmount_directory(config_temp)
 
-def backup_vmdk(host, username, vmdk_path, output_dir, vm_name, disk_num, temp_base, compression_format, compression_level=None):
+def backup_vmdk(host, username, vmdk_path, output_dir, vm_name, disk_num, temp_base, compression_format, compression_level=None, hash_algo='sha256'):
     """Backup individual VMDK file and all related files"""
     vmdk_dir = os.path.dirname(vmdk_path)
     base_name = os.path.basename(vmdk_path).replace('.vmdk', '')
@@ -301,6 +350,9 @@ def backup_vmdk(host, username, vmdk_path, output_dir, vm_name, disk_num, temp_b
                 [os.path.basename(f) for f in found_files],
                 check=True
             )
+            
+            # Generate manifest for this archive
+            generate_manifest(output_file, output_dir, hash_algo)
         finally:
             os.chdir('/')  # Always change back to root directory
 
