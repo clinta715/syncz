@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 import portalocker  # Add this
 import hashlib
+from datetime import datetime
 
 # Supported compression programs and their extensions
 COMPRESSION_FORMATS = {
@@ -18,6 +19,133 @@ COMPRESSION_FORMATS = {
     'xz': {'ext': '.tar.xz', 'cmd': 'xz'},
     'none': {'ext': '.tar', 'cmd': 'cat'},  # 'cat' for no compression
 }
+
+class BackupLogger:
+    def __init__(self, log_dir=None, vm_name="unknown", host="unknown"):
+        self.log_dir = log_dir
+        self.vm_name = vm_name
+        self.host = host
+        self.start_time = datetime.now()
+        self.log_file = None
+        self.log_path = None
+        self.errors = []
+        self.warnings = []
+        
+        if log_dir:
+            self._create_log_file()
+    
+    def _create_log_file(self):
+        """Create log file with timestamp and VM info in filename"""
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir, exist_ok=True)
+        
+        # Sanitize names for filename
+        safe_vm_name = re.sub(r'[^\w\-_.]', '_', self.vm_name)
+        safe_host = re.sub(r'[^\w\-_.]', '_', self.host)
+        timestamp = self.start_time.strftime("%Y%m%d_%H%M%S")
+        
+        filename = f"vmbackup_{safe_vm_name}_{safe_host}_{timestamp}.log"
+        self.log_path = os.path.join(self.log_dir, filename)
+        
+        try:
+            self.log_file = open(self.log_path, 'w')
+            self._write_header()
+        except Exception as e:
+            print(f"Warning: Could not create log file {self.log_path}: {e}", file=sys.stderr)
+            self.log_file = None
+    
+    def _write_header(self):
+        """Write structured header for parsing/charting"""
+        if not self.log_file:
+            return
+        
+        # Structured data header (one line for easy parsing)
+        header = f"BACKUP_LOG_V1|{self.start_time.isoformat()}|{self.vm_name}|{self.host}|RUNNING|0|0"
+        self.log_file.write(f"{header}\n")
+        self.log_file.write("="*80 + "\n")
+        
+        # Human readable header
+        self.log_file.write(f"VMware VM Backup Log\n")
+        self.log_file.write(f"Start Time: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        self.log_file.write(f"VM Name: {self.vm_name}\n")
+        self.log_file.write(f"Host: {self.host}\n")
+        self.log_file.write(f"Log File: {self.log_path}\n")
+        self.log_file.write("="*80 + "\n\n")
+        self.log_file.flush()
+    
+    def log(self, message, level="INFO"):
+        """Log a message with timestamp and level"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        log_entry = f"[{timestamp}] {level}: {message}"
+        
+        # Always print to console
+        if level == "ERROR":
+            print(log_entry, file=sys.stderr)
+            self.errors.append(message)
+        elif level == "WARNING":
+            print(log_entry, file=sys.stderr)
+            self.warnings.append(message)
+        else:
+            print(log_entry)
+        
+        # Write to log file if available and not closed
+        if self.log_file and not self.log_file.closed:
+            self.log_file.write(f"{log_entry}\n")
+            self.log_file.flush()
+    
+    def finalize(self, status="SUCCESS", final_message="Backup completed successfully"):
+        """Finalize the log with status and update header"""
+        end_time = datetime.now()
+        duration = (end_time - self.start_time).total_seconds()
+        
+        # Log final status
+        self.log(f"Backup {status.lower()} after {duration:.1f} seconds", 
+                level="INFO" if status == "SUCCESS" else "ERROR")
+        self.log(final_message)
+        
+        if self.warnings:
+            self.log(f"Total warnings: {len(self.warnings)}", "WARNING")
+        if self.errors:
+            self.log(f"Total errors: {len(self.errors)}", "ERROR")
+        
+        if self.log_file:
+            # Write summary
+            self.log_file.write("\n" + "="*80 + "\n")
+            self.log_file.write("BACKUP SUMMARY\n")
+            self.log_file.write(f"Status: {status}\n")
+            self.log_file.write(f"Duration: {duration:.1f} seconds\n")
+            self.log_file.write(f"Warnings: {len(self.warnings)}\n")
+            self.log_file.write(f"Errors: {len(self.errors)}\n")
+            self.log_file.write(f"End Time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            self.log_file.flush()
+            self.log_file.close()
+            
+            # Now update the header by reading and rewriting the entire file
+            try:
+                with open(self.log_path, 'r', encoding='utf-8') as f:
+                    current_content = f.read()
+                
+                # Replace the first line with updated status
+                lines = current_content.split('\n')
+                if lines and lines[0].startswith("BACKUP_LOG_V1|"):
+                    parts = lines[0].split('|')
+                    if len(parts) >= 7:
+                        parts[4] = status  # Update status
+                        parts[5] = str(len(self.warnings))  # Update warning count
+                        parts[6] = str(len(self.errors))  # Update error count
+                        lines[0] = '|'.join(parts)
+                
+                # Write the updated content back
+                with open(self.log_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                    
+            except Exception as e:
+                print(f"Warning: Could not update log header: {e}", file=sys.stderr)
+            
+            print(f"Log written to: {self.log_path}")
+
+# Global logger instance
+logger = None
 
 def compute_hash(file_path, algo='sha256', chunk_size=65536):
     """Compute hash of a file with the chosen algorithm"""
@@ -59,7 +187,7 @@ def generate_manifest(archive_path, output_dir, algo='sha256'):
         except Exception as e:
             mf.write(f"Could not list contents: {e}\n")
 
-    print(f"Manifest written to {manifest_path}")
+    logger.log(f"Manifest written to {manifest_path}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='VMware VM Backup Tool')
@@ -74,6 +202,7 @@ def parse_args():
     parser.add_argument('--hash', dest='hash_algo', default='sha256',
                     choices=hashlib.algorithms_available,
                     help='Hash algorithm to use for manifests (default: sha256)')
+    parser.add_argument('--log-dir', help='Directory to write log files (optional)')
     return parser.parse_args()
 
 def run_ssh_command(host, username, command, check=True):
@@ -87,7 +216,7 @@ def run_ssh_command(host, username, command, check=True):
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        print(f"SSH command failed on {host}: {e.stderr.strip()}", file=sys.stderr)
+        logger.log(f"SSH command failed on {host}: {e.stderr.strip()}", "ERROR")
         return None
 
 def get_related_vmdk_files(host, username, vmdk_path):
@@ -156,13 +285,18 @@ def parse_vmx_file(host, username, vmx_path):
     return disk_files
 
 def find_vm(vm_name, hosts, username):
+    logger.log(f"Searching for VM '{vm_name}' across {len(hosts)} hosts")
+    
     for host in hosts:
+        logger.log(f"Checking host {host}")
         datastore_map = get_datastore_mapping(host, username)
         if not datastore_map:
+            logger.log(f"Could not get datastore mapping for {host}", "WARNING")
             continue
 
         all_vms = run_ssh_command(host, username, 'vim-cmd vmsvc/getallvms')
         if not all_vms:
+            logger.log(f"Could not get VM list from {host}", "WARNING")
             continue
 
         for line in all_vms.split('\n'):
@@ -176,6 +310,7 @@ def find_vm(vm_name, hosts, username):
             vm_id, friendly_name, vm_path = columns[0], columns[1], columns[2]
 
             if vm_name.lower() in friendly_name.lower():
+                logger.log(f"Found matching VM: {friendly_name}")
                 ds_match = re.match(r'^\[([^\]]+)\]\s*(.+)$', vm_path)
                 if not ds_match:
                     continue
@@ -186,19 +321,19 @@ def find_vm(vm_name, hosts, username):
 
                 datastore_uuid = datastore_map.get(datastore_name)
                 if not datastore_uuid:
-                    print(f"Warning: Could not resolve datastore '{datastore_name}'")
+                    logger.log(f"Could not resolve datastore '{datastore_name}'", "WARNING")
                     continue
 
                 full_vmx_path = f"/vmfs/volumes/{datastore_uuid}/{vmx_rel_path}"
                 if not run_ssh_command(host, username, f'[ -f "{full_vmx_path}" ] && echo exists'):
-                    print(f"Warning: VMX file not found at {full_vmx_path}")
+                    logger.log(f"VMX file not found at {full_vmx_path}", "WARNING")
                     continue
 
                 disk_files = parse_vmx_file(host, username, full_vmx_path)
                 if not disk_files:
-                    print(f"Warning: No disk files found in VMX configuration")
+                    logger.log("No disk files found in VMX configuration", "WARNING")
 
-                return {
+                vm_info = {
                     'host': host,
                     'username': username,
                     'vm_id': vm_id,
@@ -207,11 +342,15 @@ def find_vm(vm_name, hosts, username):
                     'vm_dir': f"/vmfs/volumes/{datastore_uuid}/{vm_dir}",
                     'disk_files': disk_files
                 }
+                logger.log(f"VM found successfully on host {host}")
+                return vm_info
+                
     raise ValueError(f"VM '{vm_name}' not found or files missing")
 
 def create_snapshot(host, username, vm_id):
-    print("Creating snapshot...")
+    logger.log("Creating backup snapshot")
     run_ssh_command(host, username, f'vim-cmd vmsvc/snapshot.create {vm_id} BackupSnapshot SnapshotBackup 0 1')
+    logger.log("Snapshot created successfully")
 
 def is_mounted(path):
     """Check if a path is already mounted"""
@@ -224,7 +363,7 @@ def is_mounted(path):
 def mount_directory(host, username, remote_path, local_path):
     """Mount remote directory only if not already mounted"""
     if is_mounted(local_path):
-        print(f"Directory {local_path} is already mounted")
+        logger.log(f"Directory {local_path} is already mounted")
         return True
 
     os.makedirs(local_path, exist_ok=True)
@@ -235,14 +374,16 @@ def mount_directory(host, username, remote_path, local_path):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
+        logger.log(f"Mounted {remote_path} to {local_path}")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"Failed to mount {remote_path} to {local_path}: {e.stderr}", file=sys.stderr)
+        logger.log(f"Failed to mount {remote_path} to {local_path}: {e.stderr}", "ERROR")
         return False
 
 def unmount_directory(local_path):
     if is_mounted(local_path):
         subprocess.run(['fusermount', '-u', local_path], check=False)
+        logger.log(f"Unmounted {local_path}")
 
 def get_compression_command(compression_format, compression_level=None):
     """Build compression command with optional level"""
@@ -284,7 +425,7 @@ def backup_vm_config(host, username, vm_dir, output_dir, vm_name, temp_base, com
 
         compress_info = COMPRESSION_FORMATS[compression_format]
         output_file = os.path.join(output_dir, f"{vm_name}_config{compress_info['ext']}")
-        print(f"Backing up VM configuration to {output_file} using {compression_format} compression")
+        logger.log(f"Backing up VM configuration to {output_file} using {compression_format} compression")
 
         # Change to the mounted directory and tar from there
         os.chdir(config_temp)
@@ -297,6 +438,7 @@ def backup_vm_config(host, username, vm_dir, output_dir, vm_name, temp_base, com
 
             # Generate manifest for this archive
             generate_manifest(output_file, output_dir, hash_algo)
+            logger.log(f"Configuration backup completed: {len(config_files)} files archived")
         finally:
             os.chdir('/')  # Always change back to root directory
 
@@ -310,7 +452,7 @@ def backup_vmdk(host, username, vmdk_path, output_dir, vm_name, disk_num, temp_b
 
     # Get all related VMDK files
     related_files = get_related_vmdk_files(host, username, vmdk_path)
-    print(f"Found {len(related_files)} related VMDK files for {vmdk_path}")
+    logger.log(f"Found {len(related_files)} related VMDK files for {vmdk_path}")
 
     # Create a unique mount point for this VMDK set using timestamp and PID
     timestamp = int(time.time())
@@ -330,7 +472,7 @@ def backup_vmdk(host, username, vmdk_path, output_dir, vm_name, disk_num, temp_b
                 missing_files.append(file)
 
         if missing_files:
-            print(f"Warning: Missing VMDK files: {', '.join(missing_files)}")
+            logger.log(f"Missing VMDK files: {', '.join(missing_files)}", "WARNING")
 
         # Create a tar archive of all found files
         found_files = [f for f in related_files if os.path.basename(f) not in missing_files]
@@ -339,7 +481,7 @@ def backup_vmdk(host, username, vmdk_path, output_dir, vm_name, disk_num, temp_b
 
         compress_info = COMPRESSION_FORMATS[compression_format]
         output_file = os.path.join(output_dir, f"{vm_name}_disk{disk_num}{compress_info['ext']}")
-        print(f"Backing up {len(found_files)} VMDK files to {output_file} using {compression_format} compression")
+        logger.log(f"Backing up {len(found_files)} VMDK files to {output_file} using {compression_format} compression")
 
         # Change to the mounted directory and tar from there
         os.chdir(vmdk_temp)
@@ -353,6 +495,7 @@ def backup_vmdk(host, username, vmdk_path, output_dir, vm_name, disk_num, temp_b
             
             # Generate manifest for this archive
             generate_manifest(output_file, output_dir, hash_algo)
+            logger.log(f"Disk {disk_num} backup completed: {len(found_files)} files archived")
         finally:
             os.chdir('/')  # Always change back to root directory
 
@@ -364,15 +507,21 @@ def backup_vmdk(host, username, vmdk_path, output_dir, vm_name, disk_num, temp_b
             pass  # Ignore if directory not empty or other error
 
 def cleanup(host, username, vm_id, temp_folder):
-    print("Unmounting any remaining mounts...")
+    logger.log("Starting cleanup process")
+    logger.log("Unmounting any remaining mounts")
     for mount_dir in os.listdir(temp_folder):
         unmount_directory(os.path.join(temp_folder, mount_dir))
 
-    print("Removing snapshots...")
+    logger.log("Removing snapshots")
     run_ssh_command(host, username, f'vim-cmd vmsvc/snapshot.removeall {vm_id}')
+    logger.log("Cleanup completed")
 
 def main():
+    global logger
     args = parse_args()
+
+    # Initialize logger early with minimal info
+    logger = BackupLogger(args.log_dir, args.vm_name, "searching")
 
     # Lock based on VM name
     safe_vm_name = re.sub(r'\W+', '_', args.vm_name)  # sanitize VM name for filename
@@ -382,28 +531,47 @@ def main():
         lock_file = open(lockfile_path, 'w')
         portalocker.lock(lock_file, portalocker.LOCK_EX | portalocker.LOCK_NB)
     except portalocker.exceptions.LockException:
-        print(f"Another backup of VM '{args.vm_name}' is already in progress. Exiting.")
+        error_msg = f"Another backup of VM '{args.vm_name}' is already in progress. Exiting."
+        logger.log(error_msg, "ERROR")
+        logger.finalize("FAILED", error_msg)
         sys.exit(1)
 
     try:
+        logger.log("Starting VMware VM backup process")
+        logger.log(f"Target VM: {args.vm_name}")
+        logger.log(f"Output directory: {args.out}")
+        logger.log(f"Compression: {args.compression}" + 
+                  (f" (level {args.compression_level})" if args.compression_level else ""))
+        logger.log(f"Hash algorithm: {args.hash_algo}")
+        
         # Verify output directory exists
         if not os.path.exists(args.out):
             raise ValueError(f"Output directory {args.out} does not exist")
 
         # Create temp directory if it doesn't exist
         os.makedirs(args.temp, exist_ok=True)
+        logger.log(f"Using temporary directory: {args.temp}")
 
         vm_info = find_vm(args.vm_name, args.hosts, args.username)
-        print(f"Found VM {vm_info['vm_name']} (ID: {vm_info['vm_id']}) on host {vm_info['host']}")
-        print(f"VM Directory: {vm_info['vm_dir']}")
-        print(f"VMX File: {vm_info['vmx_path']}")
-        print(f"Disk Files: {', '.join(vm_info['disk_files'])}")
-        print(f"Using compression: {args.compression}" +
-              (f" (level {args.compression_level})" if args.compression_level else ""))
+        
+        # Update logger with actual host info now that we found the VM
+        logger.host = vm_info['host']
+        logger.vm_name = vm_info['vm_name']
+        
+        logger.log(f"VM Details:")
+        logger.log(f"  Name: {vm_info['vm_name']}")
+        logger.log(f"  ID: {vm_info['vm_id']}")
+        logger.log(f"  Host: {vm_info['host']}")
+        logger.log(f"  VM Directory: {vm_info['vm_dir']}")
+        logger.log(f"  VMX File: {vm_info['vmx_path']}")
+        logger.log(f"  Disk Files: {len(vm_info['disk_files'])} found")
+        for i, disk in enumerate(vm_info['disk_files'], 1):
+            logger.log(f"    Disk {i}: {disk}")
 
         create_snapshot(vm_info['host'], vm_info['username'], vm_info['vm_id'])
 
         # Backup VM configuration first
+        logger.log("Starting configuration backup")
         backup_vm_config(
             vm_info['host'],
             vm_info['username'],
@@ -412,13 +580,17 @@ def main():
             vm_info['vm_name'],
             args.temp,
             args.compression,
-            args.compression_level
+            args.compression_level,
+            args.hash_algo
         )
 
         # Backup each VMDK and its related files
+        vmdk_count = 0
         for i, vmdk_path in enumerate(vm_info['disk_files'], 1):
             if vmdk_path.endswith('.vmdk'):  # Only backup VMDKs, skip ISOs
+                vmdk_count += 1
                 try:
+                    logger.log(f"Starting backup of disk {i}: {os.path.basename(vmdk_path)}")
                     backup_vmdk(
                         vm_info['host'],
                         vm_info['username'],
@@ -428,15 +600,21 @@ def main():
                         i,
                         args.temp,
                         args.compression,
-                        args.compression_level
+                        args.compression_level,
+                        args.hash_algo
                     )
                 except Exception as e:
-                    print(f"Error backing up {vmdk_path}: {e}", file=sys.stderr)
+                    logger.log(f"Error backing up {vmdk_path}: {e}", "ERROR")
+            else:
+                logger.log(f"Skipping non-VMDK file: {vmdk_path}")
 
-        print(f"Backup completed successfully in directory: {args.out}")
+        success_msg = f"Backup completed successfully! Backed up configuration + {vmdk_count} disk(s) to: {args.out}"
+        logger.finalize("SUCCESS", success_msg)
 
     except Exception as e:
-        print(f"\nError: {e}", file=sys.stderr)
+        error_msg = f"Backup failed: {str(e)}"
+        logger.log(error_msg, "ERROR")
+        logger.finalize("FAILED", error_msg)
         sys.exit(1)
     finally:
         if 'vm_info' in locals():
