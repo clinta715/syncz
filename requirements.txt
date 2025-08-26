@@ -1,0 +1,26 @@
+# VMware VM Backup Tool - Python Requirements
+# 
+# Install with: pip3 install -r requirements.txt
+# For system-wide installation: sudo pip3 install -r requirements.txt
+
+# File locking library for preventing concurrent backups of the same VM
+# Used to ensure only one backup process runs per VM at a time
+portalocker>=2.0.0
+
+# Optional: For enhanced logging capabilities (not currently used but recommended for future features)
+# colorlog>=6.0.0
+
+# Optional: For progress bars during long operations (not currently used)
+# tqdm>=4.60.0
+
+# Note: The following are standard library modules used by the script:
+# - argparse (built-in)
+# - subprocess (built-in) 
+# - sys (built-in)
+# - os (built-in)
+# - re (built-in)
+# - shutil (built-in)
+# - concurrent.futures (built-in Python 3.2+)
+# - time (built-in)
+# - hashlib (built-in)
+# - datetime (built-in)
