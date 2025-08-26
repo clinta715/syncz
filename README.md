@@ -1,379 +1,379 @@
-# VMware Backup Tools
+# VMware VM Backup Tool Documentation
 
-A comprehensive suite of tools for backing up VMware virtual machines and generating beautiful reporting dashboards.
+## Overview
 
-## 🚀 Features
+This Python script provides automated backup functionality for VMware virtual machines running on ESXi hosts. It creates consistent snapshots, backs up VM configuration files and disk images, and generates verification manifests with configurable compression and hashing options.
 
-### BackupVM Script (`backupvm.py`)
-- **Automated VM Discovery**: Find VMs across multiple ESXi hosts by partial name matching
-- **Snapshot-based Backups**: Creates temporary snapshots for consistent backups
-- **Smart Compression**: Multiple compression formats (zstd, gzip, bzip2, xz, or none)
-- **Integrity Verification**: Automatic manifest generation with configurable hash algorithms
-- **Comprehensive Logging**: Structured logging with machine-readable headers for monitoring
-- **Multi-disk Support**: Handles complex VM configurations with multiple disks
-- **Related File Detection**: Automatically finds and backs up all related VMDK files (flat files, snapshots, etc.)
-- **Concurrent Safety**: File locking prevents multiple backups of the same VM
+## Features
 
-### Report Generator (`backup_report_generator.py`)
-- **Interactive Calendar View**: Visual calendar showing backup activity with color-coded status indicators
-- **Performance Analytics**: Success rates, trends, and statistics for each VM
-- **Modern Web UI**: Beautiful, responsive HTML reports with glassmorphism design
-- **Multi-host Support**: Tracks backups across multiple ESXi hosts
-- **Historical Analysis**: View backup patterns over time
-- **Mobile Friendly**: Responsive design works on all devices
+- **Snapshot-based backups**: Creates temporary snapshots for consistent backups
+- **Multiple compression formats**: Support for zstd, gzip, bzip2, xz, or no compression
+- **Integrity verification**: Generates manifest files with checksums
+- **Multi-host search**: Searches across multiple ESXi hosts for VMs
+- **Concurrent safety**: Uses file locking to prevent multiple simultaneous backups of the same VM
+- **Comprehensive logging**: Structured logging with timestamps and status tracking
+- **VMDK file discovery**: Automatically finds and backs up all related VMDK files (flat files, snapshots, etc.)
 
-## 📋 Requirements
+## Prerequisites
 
-### System Dependencies
+### System Requirements
+
+- **Operating System**: Linux (tested on Ubuntu/Debian/CentOS)
+- **Python**: Python 3.6 or higher
+- **SSH Access**: Passwordless SSH access to VMware ESXi hosts
+- **SSHFS**: For mounting remote filesystems
+- **Network**: Network connectivity to ESXi hosts
+
+### VMware ESXi Configuration
+
+1. **Enable SSH** on your ESXi hosts:
+   ```bash
+   # On ESXi host console or via vSphere Client
+   # Navigate to Host > Manage > Services > TSM-SSH > Start
+   ```
+
+2. **Set up SSH key authentication** (recommended):
+   ```bash
+   # On backup server
+   ssh-keygen -t rsa -b 4096
+   ssh-copy-id root@your-esxi-host
+   ```
+
+3. **Test SSH connectivity**:
+   ```bash
+   ssh root@your-esxi-host "vim-cmd vmsvc/getallvms"
+   ```
+
+## Installation
+
+### 1. Install System Dependencies
+
+#### Ubuntu/Debian:
+```bash
+sudo apt update
+sudo apt install python3 python3-pip sshfs openssh-client tar
+```
+
+#### CentOS/RHEL:
+```bash
+sudo yum install python3 python3-pip fuse-sshfs openssh-clients tar
+# Or for newer versions:
+sudo dnf install python3 python3-pip fuse-sshfs openssh-clients tar
+```
+
+### 2. Install Python Requirements
+
+Create a `requirements.txt` file:
+```txt
+portalocker>=2.0.0
+```
+
+Install the Python dependencies:
+```bash
+# Using pip
+pip3 install portalocker
+
+# Or using requirements file
+pip3 install -r requirements.txt
+
+# For system-wide installation (may require sudo)
+sudo pip3 install portalocker
+```
+
+### 3. Install Compression Tools (Optional)
+
+Install additional compression tools based on your needs:
+
 ```bash
 # Ubuntu/Debian
-sudo apt update
-sudo apt install python3 python3-pip sshfs openssh-client
+sudo apt install zstd gzip bzip2 xz-utils
 
-# CentOS/RHEL/Rocky Linux
-sudo yum install python3 python3-pip fuse-sshfs openssh-clients
-
-# Or with dnf
-sudo dnf install python3 python3-pip fuse-sshfs openssh-clients
+# CentOS/RHEL
+sudo yum install zstd gzip bzip2 xz
 ```
 
-### Python Dependencies
+### 4. Download and Setup Script
+
 ```bash
-pip3 install portalocker
+# Download the script
+wget https://example.com/backupvm.py
+# Or copy from your source
+
+# Make executable
+chmod +x backupvm.py
+
+# Optional: Move to system PATH
+sudo cp backupvm.py /usr/local/bin/backupvm
 ```
 
-### VMware Host Setup
-Ensure SSH key authentication is configured for your ESXi hosts:
-```bash
-# Generate SSH key pair (if not already done)
-ssh-keygen -t rsa -b 4096
+## Usage
 
-# Copy public key to ESXi hosts
-ssh-copy-id root@your-esxi-host.com
+### Basic Syntax
+
+```bash
+./backupvm.py VM_NAME --out OUTPUT_DIR --hosts HOST1 [HOST2 ...]
 ```
 
-## 🛠️ Installation
+### Required Arguments
 
-1. **Clone or download the scripts**:
-   ```bash
-   curl -O https://path-to-your/backupvm.py
-   curl -O https://path-to-your/backup_report_generator.py
-   chmod +x backupvm.py backup_report_generator.py
-   ```
+- `VM_NAME`: Name or partial name of the VM to backup (case-insensitive partial matching)
+- `--out`: Output directory where backup files will be stored (must exist)
+- `--hosts`: One or more ESXi host IP addresses or hostnames
 
-2. **Create backup directories**:
-   ```bash
-   sudo mkdir -p /mnt/backup /var/log/backups
-   sudo chown $USER:$USER /mnt/backup /var/log/backups
-   ```
+### Optional Arguments
 
-## 📖 Usage
+- `--username`: SSH username for ESXi hosts (default: `root`)
+- `--temp`: Temporary mount point directory (default: `/tmp/vmbackup_temp`)
+- `--compression`: Compression method - `zstd`, `gzip`, `bzip2`, `xz`, `none` (default: `zstd`)
+- `--compression-level`: Compression level (1-9 for most formats)
+- `--hash`: Hash algorithm for manifests (default: `sha256`)
+- `--log-dir`: Directory to write detailed log files
 
-### BackupVM Script
+### Examples
 
-#### Basic Backup
+#### Basic backup with default settings:
 ```bash
-./backupvm.py MyVM --out /mnt/backup/MyVM --hosts 192.168.1.100
+./backupvm.py "web-server" --out /backup/vms --hosts 192.168.1.100
 ```
 
-#### Full-featured Backup with Logging
+#### Backup with custom compression and logging:
 ```bash
-./backupvm.py WebServer --out /mnt/backup/webserver \
+./backupvm.py "database-prod" \
+  --out /backup/vms \
   --hosts 192.168.1.100 192.168.1.101 \
-  --compression zstd \
-  --compression-level 3 \
-  --hash sha256 \
-  --log-dir /var/log/backups
+  --compression gzip \
+  --compression-level 6 \
+  --log-dir /var/log/vmbackup \
+  --hash sha512
 ```
 
-#### Command Line Options
+#### Multiple hosts with different username:
 ```bash
-./backupvm.py VM_NAME --out OUTPUT_DIR --hosts HOST1 [HOST2 ...] [OPTIONS]
-
-Required Arguments:
-  VM_NAME                    VM name to search (partial match supported)
-  --out OUTPUT_DIR          Output directory (must exist)
-  --hosts HOST1 [HOST2...]  VMware host IPs to search
-
-Optional Arguments:
-  --temp TEMP_DIR           Temporary mount point (default: /tmp/vmbackup_temp)
-  --username USERNAME       SSH username (default: root)
-  --compression FORMAT      Compression: zstd|gzip|bzip2|xz|none (default: zstd)
-  --compression-level N     Compression level (1-22 for zstd, 1-9 for others)
-  --hash ALGORITHM         Hash algorithm for manifests (default: sha256)
-  --log-dir LOG_DIR        Directory for log files (optional)
+./backupvm.py "test-vm" \
+  --out /backup/test \
+  --hosts esxi-host1.local esxi-host2.local \
+  --username admin \
+  --temp /mnt/vmbackup_temp
 ```
 
-### Report Generator
-
-#### Generate HTML Report
+#### No compression (fastest backup):
 ```bash
-./backup_report_generator.py /var/log/backups
+./backupvm.py "large-vm" \
+  --out /fast-storage/backups \
+  --hosts 10.0.0.100 \
+  --compression none
 ```
 
-#### Custom Output Location
+## Output Files
+
+The script creates several files in the output directory:
+
+### Backup Archives
+- `{VM_NAME}_config.tar.{ext}`: VM configuration files (VMX, VMXF, VMSD, NVRAM)
+- `{VM_NAME}_disk1.tar.{ext}`: First disk and related VMDK files
+- `{VM_NAME}_disk2.tar.{ext}`: Second disk (if exists)
+- ... (additional disks as needed)
+
+### Manifest Files
+- `{VM_NAME}_config.tar.{ext}.{hash}.manifest.txt`: Configuration archive manifest
+- `{VM_NAME}_disk1.tar.{ext}.{hash}.manifest.txt`: Disk archive manifests
+
+### Example Output Structure
+```
+/backup/vms/
+├── web-server_config.tar.zst
+├── web-server_config.tar.zst.sha256.manifest.txt
+├── web-server_disk1.tar.zst
+├── web-server_disk1.tar.zst.sha256.manifest.txt
+├── web-server_disk2.tar.zst
+└── web-server_disk2.tar.zst.sha256.manifest.txt
+```
+
+### Manifest File Contents
+```
+Archive: /backup/vms/web-server_config.tar.zst
+Size: 1234567 bytes
+SHA256: abc123def456...
+
+Contents:
+web-server.vmx    4096 bytes
+web-server.vmxf   512 bytes
+web-server.nvram  8684 bytes
+```
+
+## Log Files
+
+When `--log-dir` is specified, detailed log files are created with structured headers for easy parsing:
+
+### Log File Format
+- Filename: `vmbackup_{VM_NAME}_{HOST}_{TIMESTAMP}.log`
+- Location: `{LOG_DIR}/vmbackup_web-server_192-168-1-100_20240826_143022.log`
+
+### Log Structure
+```
+BACKUP_LOG_V1|2024-08-26T14:30:22|web-server|192.168.1.100|SUCCESS|0|0
+================================================================================
+VMware VM Backup Log
+Start Time: 2024-08-26 14:30:22
+VM Name: web-server
+Host: 192.168.1.100
+Log File: /var/log/vmbackup/vmbackup_web-server_192-168-1-100_20240826_143022.log
+================================================================================
+
+[14:30:22] INFO: Starting VMware VM backup process
+[14:30:23] INFO: Searching for VM 'web-server' across 1 hosts
+...
+[14:35:45] INFO: Backup completed successfully! Backed up configuration + 2 disk(s)
+
+================================================================================
+BACKUP SUMMARY
+Status: SUCCESS
+Duration: 323.2 seconds
+Warnings: 0
+Errors: 0
+End Time: 2024-08-26 14:35:45
+```
+
+## Restore Process
+
+### Extracting Archives
 ```bash
-./backup_report_generator.py /var/log/backups --output /var/www/html/backup_report.html
+# Extract configuration
+tar -xf web-server_config.tar.zst
+
+# Extract disk files
+tar -xf web-server_disk1.tar.zst
 ```
 
-#### Command Line Options
+### Verification
 ```bash
-./backup_report_generator.py LOG_DIR [OPTIONS]
+# Verify archive integrity using manifest
+sha256sum web-server_config.tar.zst
+# Compare with value in manifest file
 
-Required Arguments:
-  LOG_DIR                   Directory containing backup log files
-
-Optional Arguments:
-  --output FILE, -o FILE    Output HTML file (default: backup_report.html)
+# List archive contents
+tar -tvf web-server_disk1.tar.zst
 ```
 
-## 📊 Log File Format
-
-### Structured Header
-Each log file starts with a machine-readable header for easy parsing:
-```
-BACKUP_LOG_V1|2025-08-22T14:30:15.123456|WebServer01|192.168.1.100|SUCCESS|1|0
-```
-
-**Format**: `VERSION|TIMESTAMP|VM_NAME|HOST|STATUS|WARNING_COUNT|ERROR_COUNT`
-
-### Status Codes
-- **SUCCESS**: Backup completed without errors
-- **FAILED**: Backup failed with errors
-- **RUNNING**: Initial state (updated on completion)
-
-### Log File Naming
-```
-vmbackup_{VM_NAME}_{HOST}_{TIMESTAMP}.log
-
-Example: vmbackup_WebServer01_192_168_1_100_20250822_143015.log
-```
-
-## 🎨 Report Features
-
-### Interactive Calendar
-- **Color-coded dots**: 🟢 Success, 🔴 Failed, 🟡 Warnings
-- **Hover tooltips**: VM name, host, status, warning details
-- **Multi-month view**: Historical backup activity
-- **Responsive design**: Works on desktop and mobile
-
-### Statistics Dashboard
-- Overall success rate percentage
-- Total successful/failed backups
-- Warning and error counts
-- Recent activity (last 7 days)
-- Unique VM count
-- Individual VM performance cards
-
-### VM Performance Cards
-- **Green (≥90%)**: Excellent performance
-- **Yellow (70-89%)**: Good performance  
-- **Red (<70%)**: Needs attention
-
-## 💡 Example Workflows
-
-### Daily Backup Script
-```bash
-#!/bin/bash
-# daily_backup.sh
-
-LOG_DIR="/var/log/backups"
-BACKUP_BASE="/mnt/backup"
-HOSTS="192.168.1.100 192.168.1.101"
-
-# List of VMs to backup
-VMS=("WebServer01" "Database01" "FileServer01")
-
-for vm in "${VMS[@]}"; do
-    echo "Backing up $vm..."
-    ./backupvm.py "$vm" \
-        --out "$BACKUP_BASE/$vm" \
-        --hosts $HOSTS \
-        --compression zstd \
-        --compression-level 3 \
-        --log-dir "$LOG_DIR"
-done
-
-# Generate report
-./backup_report_generator.py "$LOG_DIR" \
-    --output "/var/www/html/backup_dashboard.html"
-
-echo "Backup cycle complete. Report available at backup_dashboard.html"
-```
-
-### Weekly Report Generation
-```bash
-#!/bin/bash
-# weekly_report.sh
-
-./backup_report_generator.py /var/log/backups \
-    --output "/var/www/html/weekly_backup_report_$(date +%Y%m%d).html"
-
-echo "Weekly report generated: weekly_backup_report_$(date +%Y%m%d).html"
-```
-
-## 🔧 Advanced Configuration
-
-### Compression Performance Comparison
-| Format | Speed | Compression Ratio | CPU Usage | Recommended Use |
-|--------|-------|------------------|-----------|-----------------|
-| `none` | Fastest | 1.0x | Minimal | Fast networks, CPU-limited |
-| `gzip` | Fast | ~3x | Low | General purpose |
-| `zstd` | Fast | ~3.5x | Medium | **Recommended default** |
-| `bzip2` | Slow | ~4x | High | Maximum compression |
-| `xz` | Slowest | ~4.5x | Very High | Archive storage |
-
-### Hash Algorithm Options
-- **SHA256** (default): Good balance of security and performance
-- **SHA1**: Faster, less secure (legacy compatibility)
-- **SHA512**: More secure, slower
-- **MD5**: Fastest, least secure (not recommended)
-
-## 🔍 Monitoring Integration
-
-### Parsing Log Headers for Alerting
-```python
-#!/usr/bin/env python3
-# Simple monitoring script
-
-import glob
-import sys
-from datetime import datetime, timedelta
-
-def check_recent_backups():
-    log_files = glob.glob('/var/log/backups/vmbackup_*.log')
-    failed_backups = []
-    
-    # Check backups from last 24 hours
-    yesterday = datetime.now() - timedelta(days=1)
-    
-    for log_file in log_files:
-        with open(log_file, 'r') as f:
-            header = f.readline().strip()
-            
-        if header.startswith('BACKUP_LOG_V1|'):
-            parts = header.split('|')
-            timestamp = datetime.fromisoformat(parts[1])
-            vm_name = parts[2]
-            status = parts[4]
-            
-            if timestamp >= yesterday and status == 'FAILED':
-                failed_backups.append((vm_name, timestamp))
-    
-    if failed_backups:
-        print("❌ ALERT: Recent backup failures:")
-        for vm, time in failed_backups:
-            print(f"  - {vm} failed at {time}")
-        sys.exit(1)
-    else:
-        print("✅ All recent backups successful")
-
-if __name__ == "__main__":
-    check_recent_backups()
-```
-
-### Cron Job Setup
-```bash
-# Edit crontab
-crontab -e
-
-# Daily backup at 2 AM
-0 2 * * * /home/user/daily_backup.sh >> /var/log/backup_cron.log 2>&1
-
-# Weekly report on Sunday at 6 AM
-0 6 * * 0 /home/user/weekly_report.sh
-
-# Check for failures every hour
-0 * * * * /home/user/check_backups.py
-```
-
-## 🛡️ Security Considerations
-
-1. **SSH Key Management**: Use dedicated SSH keys for backup operations
-2. **File Permissions**: Ensure backup directories have appropriate permissions
-3. **Network Security**: Use firewall rules to restrict SSH access
-4. **Log Rotation**: Implement log rotation to prevent disk space issues
-
-```bash
-# Setup log rotation for backup logs
-sudo tee /etc/logrotate.d/vmbackup << EOF
-/var/log/backups/*.log {
-    daily
-    rotate 30
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-EOF
-```
-
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
-#### "VM not found"
-- Verify VM name spelling (partial matches supported)
-- Check SSH connectivity to ESXi hosts
-- Ensure VM is registered and visible in vCenter/ESXi
-
-#### "Mount failed"
-- Install `sshfs`: `sudo apt install sshfs`
-- Check filesystem permissions on temp directory
-- Verify ESXi host allows SSH connections
-
-#### "Permission denied"
-- Ensure SSH key authentication is working
-- Check that backup output directory exists and is writable
-- Verify temp directory permissions
-
-#### "Compression program not found"
-- Install compression tools: `sudo apt install zstd gzip bzip2 xz-utils`
-- Use `--compression none` as fallback
-
-### Debug Mode
-Add verbose SSH output for debugging connectivity:
+#### SSH Connection Problems
 ```bash
-ssh -vvv root@esxi-host "vim-cmd vmsvc/getallvms"
+# Test SSH connectivity
+ssh -o ConnectTimeout=10 root@esxi-host "vim-cmd vmsvc/getallvms"
+
+# Check SSH keys
+ssh-add -l
 ```
 
-### Log Analysis
+#### Permission Issues
 ```bash
-# Check recent backup status
-grep "BACKUP_LOG_V1" /var/log/backups/*.log | tail -10
+# Ensure backup user can write to output directory
+ls -la /backup/vms/
+chmod 755 /backup/vms/
 
-# Find all failed backups
-grep "FAILED" /var/log/backups/*.log
-
-# Monitor active backup
-tail -f /var/log/backups/vmbackup_*.log
+# Check temporary directory permissions
+ls -la /tmp/vmbackup_temp/
 ```
 
-## 📈 Performance Tips
+#### SSHFS Mount Issues
+```bash
+# Check if sshfs is installed
+which sshfs
 
-1. **Use local temp directories** for better SSHFS performance
-2. **Adjust compression levels** based on your network vs. CPU constraints  
-3. **Run backups during low-activity periods** to reduce impact
-4. **Use dedicated backup network** if possible
-5. **Monitor disk space** on both source and destination
+# Test manual mount
+sshfs root@esxi-host:/vmfs/volumes /tmp/test-mount
 
-## 🤝 Contributing
+# Check for orphaned mounts
+mount | grep sshfs
+fusermount -u /path/to/stuck/mount
+```
 
-Feel free to submit issues, feature requests, or pull requests. Some areas for enhancement:
+#### VM Not Found
+```bash
+# Verify VM name and check ESXi host directly
+ssh root@esxi-host "vim-cmd vmsvc/getallvms | grep -i vm-name"
 
-- Incremental backup support
-- Email notification integration
-- Backup verification and restore testing
-- Integration with backup rotation policies
-- Support for vCenter API instead of direct ESXi SSH
+# Check datastore accessibility
+ssh root@esxi-host "ls -l /vmfs/volumes/"
+```
 
-## 📄 License
+### Error Messages
 
-This project is released under the MIT License. Feel free to modify and distribute according to your needs.
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `Another backup of VM 'x' is already in progress` | Lock file exists | Wait for other backup to finish or remove `/tmp/backupvm_*.lock` |
+| `VM 'x' not found or files missing` | VM doesn't exist or inaccessible | Check VM name and host connectivity |
+| `Failed to mount VMDK directory` | SSHFS mount failed | Check SSH connectivity and permissions |
+| `Could not get datastore mapping` | ESXi host access issue | Verify SSH access and ESXi host status |
 
----
+## Performance Considerations
 
-**Happy Backing Up!** 🎉
+### Compression Trade-offs
+- **zstd**: Best balance of speed and compression (recommended)
+- **gzip**: Good compatibility, moderate speed
+- **xz**: Best compression ratio, slowest
+- **none**: Fastest, largest files
 
-For questions or support, please check the troubleshooting section or create an issue in the project repository.
+### Network and Storage
+- Use gigabit or faster network connections
+- Consider compression level vs. network speed
+- Ensure sufficient free space (2-3x VM size recommended)
+- Use fast storage for temporary directory
+
+### Resource Usage
+- CPU: Compression is CPU-intensive
+- Memory: Minimal memory usage
+- Network: High bandwidth during backup
+- Storage: Temporary space for mounts
+
+## Automation and Scheduling
+
+### Cron Example
+```bash
+# Daily backup at 2 AM
+0 2 * * * /usr/local/bin/backupvm "prod-server" --out /backup/daily --hosts 192.168.1.100 --log-dir /var/log/vmbackup 2>&1
+
+# Weekly backup with higher compression
+0 1 * * 0 /usr/local/bin/backupvm "database" --out /backup/weekly --hosts 192.168.1.100 192.168.1.101 --compression xz --compression-level 9 --log-dir /var/log/vmbackup 2>&1
+```
+
+### Backup Script Wrapper
+```bash
+#!/bin/bash
+# backup-all-vms.sh
+
+VMS=("web-server" "database-prod" "app-server")
+HOSTS="192.168.1.100 192.168.1.101"
+OUTPUT_DIR="/backup/$(date +%Y-%m-%d)"
+
+mkdir -p "$OUTPUT_DIR"
+
+for vm in "${VMS[@]}"; do
+    echo "Backing up $vm..."
+    /usr/local/bin/backupvm "$vm" \
+        --out "$OUTPUT_DIR" \
+        --hosts $HOSTS \
+        --log-dir /var/log/vmbackup \
+        --compression zstd \
+        --compression-level 3
+done
+```
+
+## Security Considerations
+
+1. **SSH Key Security**: Use dedicated SSH keys with limited scope
+2. **File Permissions**: Restrict access to backup directories (700/750)
+3. **Network Security**: Use VPN or isolated backup networks
+4. **Log Security**: Protect log files from unauthorized access
+5. **Backup Encryption**: Consider encrypting backup archives for long-term storage
+
+## Version Information
+
+- **Script Version**: Compatible with Python 3.6+
+- **VMware Compatibility**: ESXi 6.0+, vSphere 6.0+
+- **Tested Platforms**: Ubuntu 18.04+, CentOS 7+, Debian 9+
+
+For support and updates, check the project repository or contact your system administrator.
